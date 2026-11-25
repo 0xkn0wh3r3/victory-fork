@@ -277,3 +277,34 @@ fn format_instruction(i: &Instruction, wave64: bool) -> String {
     };
     format!("    {:06x}: {:<44} {text}", i.offset, words.join(" "))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn describes_geometry_limits() {
+        let g = Geometry {
+            input: InputPrimitive::Triangle,
+            output: OutputTopology::TriangleStrips,
+            streams: 1,
+            position: true,
+            max_vertices: 3,
+        };
+        assert_eq!(
+            describe(&g),
+            "triangles in, triangle strips out, at most 3 vertices, streams 0x1, position"
+        );
+        let g = Geometry {
+            input: InputPrimitive::Patch(4),
+            output: OutputTopology::Points,
+            streams: 0b11,
+            position: false,
+            max_vertices: 12,
+        };
+        assert_eq!(
+            describe(&g),
+            "4-point patches in, points out, at most 12 vertices, streams 0x3"
+        );
+    }
+}

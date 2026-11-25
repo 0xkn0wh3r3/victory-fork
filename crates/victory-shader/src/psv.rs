@@ -288,7 +288,78 @@ mod tests {
     #[test]
     fn truncated_parts_are_malformed() {
         assert!(geometry(&[]).is_err());
+        assert!(geometry(&[0x34, 0, 0]).is_err());
         let p = part(0x34, |_| {});
         assert!(geometry(&p[..4 + 0x20]).is_err());
+        // The runtime info alone is enough: what follows is not read.
+        assert!(geometry(&p[..4 + 0x34]).unwrap().is_some());
+        // A size past the data, however large, is an error, not a panic.
+        let past = (p.len() - 4 + 1) as u32;
+        for size in [past, u32::MAX] {
+            let mut p = part(0x34, |_| {});
+            p[..4].copy_from_slice(&size.to_le_bytes());
+            assert!(geometry(&p).is_err(), "size {size:#x}");
+        }
+    }
+
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    /// The `PSV0` part DXC (Windows SDK 10.0.26100, `-T gs_6_0`) wrote for
+    /// this program, signature tables and all:
+    ///
+    /// ```hlsl
+    /// struct V { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+    /// [maxvertexcount(3)]
+    /// void main(triangle V v[3], inout TriangleStream<V> s)
+    /// { s.Append(v[0]); s.RestartStrip(); }
+    /// ```
+    const DXC_TRIANGLES: &str = "\
+        340000000300000005000000010000000100000000000000ffffffff0200030002020002\
+        0200000000000000000000000000000013000000000000001800000000544558434f4f52\
+        4400544558434f4f5244006d61696e000100000000000000100000000000000000000000\
+        010044030304000001000000000000000101420003020000000000000000000001004403\
+        030400000a00000000000000010142000302000001000000020000000400000008000000\
+        10000000200000000000000000000000";
+
+    /// As [`DXC_TRIANGLES`], with two point streams instead:
+    /// `void main(triangle V v[3], inout PointStream<V> a,
+    /// inout PointStream<V> b) { a.Append(v[0]); b.Append(v[0]); }`.
+    const DXC_TWO_STREAMS: &str = "\
+        340000000300000001000000030000000100000000000000ffffffff0200030002040002\
+        020200000000000000000000000000001c000000000000002400000000544558434f4f52\
+        4400544558434f4f524400544558434f4f5244006d61696e000000000100000000000000\
+        100000000000000000000000010044030304000001000000000000000101420003020000\
+        000000000000000001004403030400000a00000000000000010142000302000000000000\
+        000000000100440303041000130000000000000001014200030210000100000002000000\
+        040000000800000010000000200000000000000000000000010000000200000004000000\
+        0800000010000000200000000000000000000000";
+
+    #[test]
+    fn reads_what_dxc_writes() {
+        assert_eq!(
+            geometry(&unhex(DXC_TRIANGLES)).unwrap(),
+            Some(Geometry {
+                input: InputPrimitive::Triangle,
+                output: OutputTopology::TriangleStrips,
+                streams: 1,
+                position: true,
+                max_vertices: 3,
+            })
+        );
+        assert_eq!(
+            geometry(&unhex(DXC_TWO_STREAMS)).unwrap(),
+            Some(Geometry {
+                input: InputPrimitive::Triangle,
+                output: OutputTopology::Points,
+                streams: 0b11,
+                position: true,
+                max_vertices: 3,
+            })
+        );
     }
 }
